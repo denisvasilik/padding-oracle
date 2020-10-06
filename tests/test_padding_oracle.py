@@ -85,7 +85,8 @@ def test_key_block_generation_sequentiell():
     post = post.replace('~', '=').replace('!', '/').replace('-', '+')
     encrypted_data = base64.b64decode(post)
     oracle_client = Base64OracleClientMock()
-    key_generator = AESIntermediateKeyGenerator(encrypted_data, oracle_client)
+    key_generator = AESIntermediateKeyGenerator(oracle_client)
+    key_generator.ciphertext = encrypted_data
     key_block_1 = key_generator.generate_key_block(1)
     key_block_0 = key_generator.generate_key_block(0)
     assert key_block_0 == expected_key_block_0
@@ -99,7 +100,8 @@ def test_key_block_generation_parallel():
     post = post.replace('~', '=').replace('!', '/').replace('-', '+')
     encrypted_data = base64.b64decode(post)
     oracle_client = Base64OracleClientMock()
-    key_generator = AESIntermediateKeyParallelGenerator(encrypted_data, oracle_client)
+    key_generator = AESIntermediateKeyParallelGenerator(oracle_client)
+    key_generator.ciphertext = encrypted_data
     key_block_1 = key_generator.generate_key_block(1)
     key_block_0 = key_generator.generate_key_block(0)
     assert key_block_0 == expected_key_block_0
@@ -121,7 +123,8 @@ def test_key_block_generation_h1ctf():
     post = post.replace('~', '=').replace('!', '/').replace('-', '+')
     encrypted_data = base64.b64decode(post)
     oracle_client = Base64OracleClientMock()
-    key_generator = AESIntermediateKeyParallelGenerator(encrypted_data, oracle_client)
+    key_generator = AESIntermediateKeyParallelGenerator(oracle_client)
+    key_generator.ciphertext = encrypted_data
 
     key_block_0 = key_generator.generate_key_block(0)
     key_block_1 = key_generator.generate_key_block(1)

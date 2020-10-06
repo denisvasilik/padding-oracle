@@ -89,13 +89,13 @@ class AESBlockProvider(object):
 
 class AESIntermediateKeyGenerator(object):
 
-    def __init__(self, ciphertext, client):
-        self._ciphertext = ciphertext
+    def __init__(self, client):
         self._client = client
+        self.ciphertext = bytes()
 
     def generate_key_block(self, block_number):
         num_bytes_found = 0
-        block_provider = AESBlockProvider(self._ciphertext)
+        block_provider = AESBlockProvider(self.ciphertext)
         block_provider.resize(block_number + 2)
         block_size = block_provider.block_size
         key_block = [0x00] * block_size
@@ -138,13 +138,11 @@ class AESIntermediateKeyGenerator(object):
 
 class AESIntermediateKeyParallelGenerator(AESIntermediateKeyGenerator):
     
-    def __init__(self, ciphertext, client):
-        self._ciphertext = ciphertext
-        self._client = client
-        self._num_bytes_found = 0
+    def __init__(self, client):
         self._key_byte = []
         self._key_byte_found = False
         self._lock = Lock()
+        super(AESIntermediateKeyParallelGenerator, self).__init__(client)
 
     def _find_key_byte(self, block_provider, block_number, position):
         self._key_byte_found = False
@@ -184,21 +182,18 @@ class AESIntermediateKeyParallelGenerator(AESIntermediateKeyGenerator):
 class AESPaddingOracle(object):
 
     def __init__(self, client):
-        self._client = client
+        self.key_generator = AESIntermediateKeyParallelGenerator(client)
 
-    def encrypt(self, plaintext_data, ciphertext_data):
-        plaintext_block_provider = AESBlockProvider(plaintext_data)
-        ciphertext_block_provider = AESBlockProvider(ciphertext_data)
-        plaintext_blocks = plaintext_block_provider.blocks
-        plaintext_block_num = len(plaintext_blocks) - 1
+    def encrypt(self, plaintext, ciphertext):
+        plaintext_block_provider = AESBlockProvider(plaintext)
+        ciphertext_block_provider = AESBlockProvider(ciphertext)
         blocks = []
-        key_generator = None
         num_blocks_encrypted = 0
-        for i in range(plaintext_block_num, -1, -1):
-            ciphertext_data = ciphertext_block_provider.data
-            key_generator = AESIntermediateKeyParallelGenerator(ciphertext_data, self._client)
-            plaintext_block = plaintext_blocks[i].value
-            key_block = key_generator.generate_key_block(i)
+        for i in range(len(plaintext_block_provider.blocks) - 1, -1, -1):
+            ciphertext = ciphertext_block_provider.data
+            self.key_generator.ciphertext = ciphertext
+            plaintext_block = plaintext_block_provider.blocks[i].value
+            key_block = self.key_generator.generate_key_block(i)
             ciphertext_block = self._xor_block(plaintext_block, key_block)
             ciphertext_block_provider.blocks[i].value = ciphertext_block
             blocks.insert(0, ciphertext_block)
@@ -207,22 +202,22 @@ class AESPaddingOracle(object):
         retval = []
         for block in blocks:
             retval.extend(block)
-        ciphertext_block_provider = AESBlockProvider(ciphertext_data)
+        ciphertext_block_provider = AESBlockProvider(ciphertext)
         last_block = ciphertext_block_provider.blocks[-1].value
         retval.extend(last_block)
         return bytes(retval)
 
-    def decrypt(self, ciphertext_data):
+    def decrypt(self, ciphertext):
         num_blocks_decrypted = 0
-        ciphertext_block_provider = AESBlockProvider(ciphertext_data)
-        plaintext_block_provider = AESBlockProvider(ciphertext_data)
+        ciphertext_block_provider = AESBlockProvider(ciphertext)
+        plaintext_block_provider = AESBlockProvider(ciphertext)
         plaintext_block_provider.resize(len(plaintext_block_provider.blocks) -1)
         plaintext_blocks = plaintext_block_provider.blocks
-        key_generator = AESIntermediateKeyParallelGenerator(ciphertext_data, self._client)
+        self.key_generator.ciphertext = ciphertext
         total_num_blocks = len(ciphertext_block_provider.blocks) - 2
         for block_number in range(total_num_blocks, -1, -1):
             cipher_block = ciphertext_block_provider.blocks[block_number].value
-            key_block = key_generator.generate_key_block(block_number)
+            key_block = self.key_generator.generate_key_block(block_number)
             plaintext_block = self._xor_block(cipher_block, key_block)
             plaintext_blocks[block_number].value = plaintext_block
             num_blocks_decrypted += 1
@@ -233,7 +228,4 @@ class AESPaddingOracle(object):
         )
 
     def _xor_block(self, block_a, block_b):
-        block_c = []
-        for i in range(0, len(block_a)):
-            block_c.append(block_a[i] ^ block_b[i])
-        return bytes(block_c)
+        return bytes([a ^ b for (a, b) in zip(block_a, block_b)])
