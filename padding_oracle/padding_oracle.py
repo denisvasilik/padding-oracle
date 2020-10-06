@@ -4,8 +4,8 @@ import time
 import threading
 import logging
 
+from threading import Lock
 from Crypto.Util.Padding import unpad, pad
-
 from binalyzer import Binalyzer, Template
 
 FORMAT = '%(asctime)-15s %(message)s'
@@ -121,9 +121,9 @@ class AESIntermediateKeyGenerator(object):
                 return ciphertext_byte ^ padding
         raise RuntimeError('Invalid operation')
 
-    def _modify_byte(self, block_provider, block_number, position):
+    def _modify_byte(self, block_provider, block_number, position, increment=1):
         cipher_block = list(block_provider.blocks[block_number].value)
-        cipher_block[position] = 0xFF & (cipher_block[position] + 1)
+        cipher_block[position] = 0xFF & (cipher_block[position] + increment)
         block_provider.blocks[block_number].value = bytes(cipher_block)
         return cipher_block[position]
 
@@ -144,6 +144,7 @@ class AESIntermediateKeyParallelGenerator(AESIntermediateKeyGenerator):
         self._num_bytes_found = 0
         self._key_byte = []
         self._key_byte_found = False
+        self._lock = Lock()
 
     def _find_key_byte(self, block_provider, block_number, position):
         self._key_byte_found = False
@@ -171,20 +172,14 @@ class AESIntermediateKeyParallelGenerator(AESIntermediateKeyGenerator):
         else:
             raise RuntimeError('Invalid operation')
 
-
     def _ask_oracle(self, block_provider, block_number, position, padding, increment):
-        ciphertext_byte = self._modify_byte2(block_provider, block_number, position, increment)
+        ciphertext_byte = self._modify_byte(block_provider, block_number, position, increment)
         valid = self._client.request(block_provider)
         if valid and not self._key_byte_found:
-            # critical section
-            self._key_byte_found = True
-            self._key_byte = ciphertext_byte ^ padding
+            with self._lock:
+                self._key_byte_found = True
+                self._key_byte = ciphertext_byte ^ padding
 
-    def _modify_byte2(self, block_provider, block_number, position, increment):
-        cipher_block = list(block_provider.blocks[block_number].value)
-        cipher_block[position] = 0xFF & (cipher_block[position] + increment)
-        block_provider.blocks[block_number].value = bytes(cipher_block)
-        return cipher_block[position]
 
 class AESPaddingOracle(object):
 
