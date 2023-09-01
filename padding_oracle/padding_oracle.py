@@ -5,14 +5,14 @@ import threading
 import logging
 
 from threading import Lock
-from Crypto.Util.Padding import unpad, pad
+from Crypto.Util.Padding import unpad
 from binalyzer import Binalyzer, Template
 
 FORMAT = '%(asctime)-15s %(message)s'
 logging.basicConfig(format=FORMAT)
 logger = logging.getLogger('padding-oracle')
 
-class Base64OracleClient(object): 
+class Base64OracleClient(object):
 
     def __init__(self, base_url):
         self._base_url = base_url
@@ -77,7 +77,7 @@ class AESBlockProvider(object):
 
     def create(self, data):
         return self._binalyzer.xml.from_str(
-            self._template, 
+            self._template,
             data,
         )
 
@@ -109,7 +109,7 @@ class AESIntermediateKeyGenerator(object):
                 key_block,
             )
             num_bytes_found += 1
-            logger.info('Found byte #%d' % num_bytes_found)
+            logger.info(f'Found byte #{num_bytes_found} 0x{key_block[position]:02X}')
         return key_block
 
     def _find_key_byte(self, block_provider, block_number, position):
@@ -137,7 +137,7 @@ class AESIntermediateKeyGenerator(object):
 
 
 class AESIntermediateKeyParallelGenerator(AESIntermediateKeyGenerator):
-    
+
     def __init__(self, client):
         self._key_byte = []
         self._key_byte_found = False
@@ -155,9 +155,9 @@ class AESIntermediateKeyParallelGenerator(AESIntermediateKeyGenerator):
             cipher_block = list(thread_block_provider.blocks[block_number].value)
             current_value = cipher_block[position]
             t = threading.Thread(target=self._ask_oracle,args=(
-                    thread_block_provider, 
-                    block_number, 
-                    position, 
+                    thread_block_provider,
+                    block_number,
+                    position,
                     padding,
                     thread_number + 1
                 ))
@@ -181,8 +181,10 @@ class AESIntermediateKeyParallelGenerator(AESIntermediateKeyGenerator):
 
 class AESPaddingOracle(object):
 
-    def __init__(self, client):
-        self.key_generator = AESIntermediateKeyParallelGenerator(client)
+    def __init__(self, client, key_generator=None):
+        if key_generator is None:
+            key_generator = AESIntermediateKeyParallelGenerator(client)
+        self.key_generator = key_generator
 
     def encrypt(self, plaintext, ciphertext):
         plaintext_block_provider = AESBlockProvider(plaintext)
@@ -224,7 +226,8 @@ class AESPaddingOracle(object):
             logger.info('Decrypted block #%d' % num_blocks_decrypted)
         return unpad(
             plaintext_block_provider.data,
-            plaintext_block_provider.block_size
+            plaintext_block_provider.block_size,
+            style='pkcs7',
         )
 
     def _xor_block(self, block_a, block_b):
